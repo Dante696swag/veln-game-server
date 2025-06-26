@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: veln-game-server
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn --bind 0.0.0.0:$PORT server:app
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: SECRET_KEY
+        generateValue: true
+databases:
+  - name: veln-game-db
+    databaseName: veln_game
+    user: veln_user
