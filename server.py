@@ -23,453 +23,316 @@ DATABASE_URL = os.environ.get('DATABASE_URL')
 
 app.config['SECRET_KEY'] = SECRET_KEY
 
-# Функция для получения подключения к базе данных
-def get_db_connection():
-    """Получить подключение к базе данных (PostgreSQL в продакшене, SQLite локально)"""
-    if DATABASE_URL and psycopg2:
-        try:
-            # Продакшен - PostgreSQL на Render.com
-            conn = psycopg2.connect(DATABASE_URL, sslmode='require')
-            logger.info("Connected to PostgreSQL database")
-            return conn
-        except Exception as e:
-            logger.error(f"PostgreSQL connection failed: {e}")
-            logger.info("Falling back to SQLite...")
-    
-    # Локальная разработка или fallback - SQLite
-    conn = sqlite3.connect('veln_game.db')
-    conn.row_factory = sqlite3.Row
-    logger.info("Connected to SQLite database")
-    return conn
-
 # Инициализация базы данных
-def init_database():
-    """Создать таблицы в базе данных"""
-    conn = get_db_connection()
-    if not conn:
-        logger.error("Failed to connect to database")
-        return False
-    
+def init_db():
     try:
+        conn = sqlite3.connect('veln_game.db')
         cursor = conn.cursor()
         
         # Создание таблицы пользователей
-        if DATABASE_URL:  # PostgreSQL
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS users (
-                    id SERIAL PRIMARY KEY,
-                    user_id BIGINT UNIQUE NOT NULL,
-                    username VARCHAR(255),
-                    first_name VARCHAR(255),
-                    last_name VARCHAR(255),
-                    points BIGINT DEFAULT 0,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-            
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS game_sessions (
-                    id SERIAL PRIMARY KEY,
-                    user_id BIGINT NOT NULL,
-                    points_earned BIGINT DEFAULT 0,
-                    session_start TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    session_end TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES users (user_id)
-                )
-            ''')
-        else:  # SQLite
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS users (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER UNIQUE NOT NULL,
-                    username TEXT,
-                    first_name TEXT,
-                    last_name TEXT,
-                    points INTEGER DEFAULT 0,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-            
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS game_sessions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
-                    points_earned INTEGER DEFAULT 0,
-                    session_start TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    session_end TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES users (user_id)
-                )
-            ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                telegram_id INTEGER UNIQUE NOT NULL,
+                username TEXT,
+                first_name TEXT,
+                last_name TEXT,
+                points INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # Создание таблицы транзакций
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                points INTEGER,
+                transaction_type TEXT,
+                description TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id)
+            )
+        ''')
         
         conn.commit()
+        conn.close()
         logger.info("Database initialized successfully")
         return True
-        
     except Exception as e:
-        logger.error(f"Database initialization failed: {e}")
-        return False
-    finally:
-        conn.close()
-
-# Проверка Telegram WebApp данных
-def verify_telegram_data(init_data):
-    """Проверить подлинность данных от Telegram WebApp"""
-    if not BOT_TOKEN:
-        logger.warning("BOT_TOKEN not set, skipping verification")
-        return True  # В разработке пропускаем проверку
-    
-    try:
-        # Простая проверка для демо
-        # В реальном проекте нужна полная проверка hash
-        return True
-    except Exception as e:
-        logger.error(f"Telegram data verification failed: {e}")
+        logger.error(f"Database initialization error: {e}")
         return False
 
-# API Routes
+# Инициализация при запуске
+init_db()
 
-@app.route('/', methods=['GET'])
+@app.route('/')
 def home():
-    """Главная страница API"""
+    """Главная страница с информацией об API"""
     return jsonify({
-        'status': 'success',
-        'message': 'VELN Game API Server is running!',
-        'version': '1.0.0',
-        'endpoints': {
-            'health': '/health',
-            'user_register': '/api/user/register (POST)',
-            'user_stats': '/api/user/stats (GET)',
-            'save_points': '/api/game/save-points (POST)',
-            'leaderboard': '/api/game/leaderboard (GET)'
-        }
+        "message": "VELN Game API Server",
+        "version": "1.0.0",
+        "status": "running",
+        "endpoints": {
+            "GET /": "API информация",
+            "GET /health": "Проверка здоровья сервера",
+            "POST /register": "Регистрация пользователя",
+            "GET /user/<telegram_id>": "Получить информацию о пользователе",
+            "GET /points/<telegram_id>": "Получить баланс поинтов",
+            "POST /add_points": "Добавить поинты пользователю",
+            "GET /leaderboard": "Таблица лидеров"
+        },
+        "bot_configured": bool(BOT_TOKEN and BOT_TOKEN != 'your_bot_token_here'),
+        "database": "SQLite"
     })
 
-@app.route('/health', methods=['GET'])
-def health_check():
+@app.route('/health')
+def health():
     """Health check для Render.com"""
     try:
-        conn = get_db_connection()
-        if conn:
-            conn.close()
-            db_status = 'connected'
-        else:
-            db_status = 'disconnected'
+        # Проверяем подключение к базе данных
+        conn = sqlite3.connect('veln_game.db')
+        cursor = conn.cursor()
+        cursor.execute('SELECT 1')
+        conn.close()
         
+        logger.info("Connected to SQLite database")
         return jsonify({
-            'status': 'healthy',
-            'database': db_status,
-            'timestamp': datetime.now().isoformat()
-        }), 200
+            "status": "healthy",
+            "database": "connected",
+            "timestamp": datetime.now().isoformat()
+        })
     except Exception as e:
+        logger.error(f"Health check failed: {e}")
         return jsonify({
-            'status': 'unhealthy',
-            'error': str(e),
-            'timestamp': datetime.now().isoformat()
+            "status": "unhealthy",
+            "error": str(e)
         }), 500
 
-@app.route('/api/user/register', methods=['POST'])
+@app.route('/register', methods=['POST'])
 def register_user():
-    """Регистрация или обновление пользователя"""
+    """Регистрация нового пользователя"""
     try:
         data = request.get_json()
         
         if not data:
-            return jsonify({'error': 'No data provided'}), 400
-        
-        # Проверка обязательных полей
-        user_id = data.get('user_id')
-        if not user_id:
-            return jsonify({'error': 'user_id is required'}), 400
-        
+            return jsonify({"error": "No data provided"}), 400
+            
+        telegram_id = data.get('telegram_id')
         username = data.get('username', '')
         first_name = data.get('first_name', '')
         last_name = data.get('last_name', '')
         
-        conn = get_db_connection()
-        if not conn:
-            return jsonify({'error': 'Database connection failed'}), 500
+        if not telegram_id:
+            return jsonify({"error": "telegram_id is required"}), 400
         
-        try:
-            cursor = conn.cursor()
-            
-            if DATABASE_URL:  # PostgreSQL
-                cursor.execute('''
-                    INSERT INTO users (user_id, username, first_name, last_name, points, updated_at)
-                    VALUES (%s, %s, %s, %s, 0, CURRENT_TIMESTAMP)
-                    ON CONFLICT (user_id) 
-                    DO UPDATE SET 
-                        username = EXCLUDED.username,
-                        first_name = EXCLUDED.first_name,
-                        last_name = EXCLUDED.last_name,
-                        updated_at = CURRENT_TIMESTAMP
-                    RETURNING user_id, points;
-                ''', (user_id, username, first_name, last_name))
-                
-                result = cursor.fetchone()
-                user_points = result[1] if result else 0
-            else:  # SQLite
-                cursor.execute('''
-                    INSERT OR REPLACE INTO users (user_id, username, first_name, last_name, points, updated_at)
-                    VALUES (?, ?, ?, ?, COALESCE((SELECT points FROM users WHERE user_id = ?), 0), CURRENT_TIMESTAMP)
-                ''', (user_id, username, first_name, last_name, user_id))
-                
-                cursor.execute('SELECT points FROM users WHERE user_id = ?', (user_id,))
-                result = cursor.fetchone()
-                user_points = result[0] if result else 0
-            
-            conn.commit()
-            
+        conn = sqlite3.connect('veln_game.db')
+        cursor = conn.cursor()
+        
+        # Проверяем, существует ли пользователь
+        cursor.execute('SELECT * FROM users WHERE telegram_id = ?', (telegram_id,))
+        existing_user = cursor.fetchone()
+        
+        if existing_user:
+            conn.close()
             return jsonify({
-                'status': 'success',
-                'message': 'User registered successfully',
-                'user': {
-                    'user_id': user_id,
-                    'username': username,
-                    'first_name': first_name,
-                    'last_name': last_name,
-                    'points': user_points
+                "message": "User already exists",
+                "user": {
+                    "telegram_id": existing_user[1],
+                    "username": existing_user[2],
+                    "points": existing_user[5]
                 }
             })
-            
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Database error in register_user: {e}")
-            return jsonify({'error': 'Database operation failed'}), 500
-        finally:
-            conn.close()
-            
+        
+        # Создаем нового пользователя
+        cursor.execute('''
+            INSERT INTO users (telegram_id, username, first_name, last_name)
+            VALUES (?, ?, ?, ?)
+        ''', (telegram_id, username, first_name, last_name))
+        
+        conn.commit()
+        user_id = cursor.lastrowid
+        conn.close()
+        
+        logger.info(f"New user registered: {telegram_id}")
+        
+        return jsonify({
+            "message": "User registered successfully",
+            "user": {
+                "id": user_id,
+                "telegram_id": telegram_id,
+                "username": username,
+                "first_name": first_name,
+                "points": 0
+            }
+        }), 201
+        
     except Exception as e:
-        logger.error(f"Error in register_user: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
+        logger.error(f"Registration error: {e}")
+        return jsonify({"error": "Registration failed"}), 500
 
-@app.route('/api/user/stats', methods=['GET'])
-def get_user_stats():
-    """Получить статистику пользователя"""
+@app.route('/user/<int:telegram_id>')
+def get_user(telegram_id):
+    """Получить информацию о пользователе"""
     try:
-        user_id = request.args.get('user_id')
-        if not user_id:
-            return jsonify({'error': 'user_id parameter is required'}), 400
+        conn = sqlite3.connect('veln_game.db')
+        cursor = conn.cursor()
         
-        conn = get_db_connection()
-        if not conn:
-            return jsonify({'error': 'Database connection failed'}), 500
+        cursor.execute('SELECT * FROM users WHERE telegram_id = ?', (telegram_id,))
+        user = cursor.fetchone()
+        conn.close()
         
-        try:
-            cursor = conn.cursor()
-            
-            if DATABASE_URL:  # PostgreSQL
-                cursor.execute('''
-                    SELECT user_id, username, first_name, last_name, points, created_at, updated_at
-                    FROM users WHERE user_id = %s
-                ''', (user_id,))
-            else:  # SQLite
-                cursor.execute('''
-                    SELECT user_id, username, first_name, last_name, points, created_at, updated_at
-                    FROM users WHERE user_id = ?
-                ''', (user_id,))
-            
-            user = cursor.fetchone()
-            
-            if not user:
-                return jsonify({'error': 'User not found'}), 404
-            
-            if DATABASE_URL:  # PostgreSQL
-                user_data = {
-                    'user_id': user[0],
-                    'username': user[1],
-                    'first_name': user[2],
-                    'last_name': user[3],
-                    'points': user[4],
-                    'created_at': user[5].isoformat() if user[5] else None,
-                    'updated_at': user[6].isoformat() if user[6] else None
-                }
-            else:  # SQLite
-                user_data = {
-                    'user_id': user[0],
-                    'username': user[1],
-                    'first_name': user[2],
-                    'last_name': user[3],
-                    'points': user[4],
-                    'created_at': user[5],
-                    'updated_at': user[6]
-                }
-            
-            return jsonify({
-                'status': 'success',
-                'user': user_data
-            })
-            
-        except Exception as e:
-            logger.error(f"Database error in get_user_stats: {e}")
-            return jsonify({'error': 'Database operation failed'}), 500
-        finally:
-            conn.close()
-            
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+        
+        return jsonify({
+            "user": {
+                "id": user[0],
+                "telegram_id": user[1],
+                "username": user[2],
+                "first_name": user[3],
+                "last_name": user[4],
+                "points": user[5],
+                "created_at": user[6]
+            }
+        })
+        
     except Exception as e:
-        logger.error(f"Error in get_user_stats: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
+        logger.error(f"Get user error: {e}")
+        return jsonify({"error": "Failed to get user"}), 500
 
-@app.route('/api/game/save-points', methods=['POST'])
-def save_points():
-    """Сохранить очки пользователя"""
+@app.route('/points/<int:telegram_id>')
+def get_points(telegram_id):
+    """Получить баланс поинтов пользователя"""
+    try:
+        conn = sqlite3.connect('veln_game.db')
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT points FROM users WHERE telegram_id = ?', (telegram_id,))
+        result = cursor.fetchone()
+        conn.close()
+        
+        if not result:
+            return jsonify({"error": "User not found"}), 404
+        
+        return jsonify({
+            "telegram_id": telegram_id,
+            "points": result[0]
+        })
+        
+    except Exception as e:
+        logger.error(f"Get points error: {e}")
+        return jsonify({"error": "Failed to get points"}), 500
+
+@app.route('/add_points', methods=['POST'])
+def add_points():
+    """Добавить поинты пользователю"""
     try:
         data = request.get_json()
         
         if not data:
-            return jsonify({'error': 'No data provided'}), 400
-        
-        user_id = data.get('user_id')
-        points = data.get('points')
-        
-        if not user_id or points is None:
-            return jsonify({'error': 'user_id and points are required'}), 400
-        
-        if not isinstance(points, int) or points < 0:
-            return jsonify({'error': 'points must be a non-negative integer'}), 400
-        
-        conn = get_db_connection()
-        if not conn:
-            return jsonify({'error': 'Database connection failed'}), 500
-        
-        try:
-            cursor = conn.cursor()
+            return jsonify({"error": "No data provided"}), 400
             
-            if DATABASE_URL:  # PostgreSQL
-                cursor.execute('''
-                    UPDATE users 
-                    SET points = %s, updated_at = CURRENT_TIMESTAMP 
-                    WHERE user_id = %s
-                    RETURNING points;
-                ''', (points, user_id))
-                
-                result = cursor.fetchone()
-                if not result:
-                    return jsonify({'error': 'User not found'}), 404
-                
-                new_points = result[0]
-            else:  # SQLite
-                cursor.execute('''
-                    UPDATE users 
-                    SET points = ?, updated_at = CURRENT_TIMESTAMP 
-                    WHERE user_id = ?
-                ''', (points, user_id))
-                
-                if cursor.rowcount == 0:
-                    return jsonify({'error': 'User not found'}), 404
-                
-                new_points = points
+        telegram_id = data.get('telegram_id')
+        points = data.get('points', 0)
+        description = data.get('description', 'Points added')
+        
+        if not telegram_id:
+            return jsonify({"error": "telegram_id is required"}), 400
             
-            conn.commit()
-            
-            return jsonify({
-                'status': 'success',
-                'message': 'Points saved successfully',
-                'points': new_points
-            })
-            
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Database error in save_points: {e}")
-            return jsonify({'error': 'Database operation failed'}), 500
-        finally:
+        if not isinstance(points, int) or points <= 0:
+            return jsonify({"error": "Points must be a positive integer"}), 400
+        
+        conn = sqlite3.connect('veln_game.db')
+        cursor = conn.cursor()
+        
+        # Обновляем баланс пользователя
+        cursor.execute('''
+            UPDATE users 
+            SET points = points + ?, updated_at = CURRENT_TIMESTAMP 
+            WHERE telegram_id = ?
+        ''', (points, telegram_id))
+        
+        if cursor.rowcount == 0:
             conn.close()
-            
+            return jsonify({"error": "User not found"}), 404
+        
+        # Записываем транзакцию
+        cursor.execute('''
+            INSERT INTO transactions (user_id, points, transaction_type, description)
+            SELECT id, ?, 'add', ? FROM users WHERE telegram_id = ?
+        ''', (points, description, telegram_id))
+        
+        # Получаем новый баланс
+        cursor.execute('SELECT points FROM users WHERE telegram_id = ?', (telegram_id,))
+        new_balance = cursor.fetchone()[0]
+        
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"Added {points} points to user {telegram_id}")
+        
+        return jsonify({
+            "message": "Points added successfully",
+            "telegram_id": telegram_id,
+            "points_added": points,
+            "new_balance": new_balance
+        })
+        
     except Exception as e:
-        logger.error(f"Error in save_points: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
+        logger.error(f"Add points error: {e}")
+        return jsonify({"error": "Failed to add points"}), 500
 
-@app.route('/api/game/leaderboard', methods=['GET'])
-def get_leaderboard():
+@app.route('/leaderboard')
+def leaderboard():
     """Получить таблицу лидеров"""
     try:
-        limit = request.args.get('limit', 10)
-        try:
-            limit = int(limit)
-            if limit <= 0 or limit > 100:
-                limit = 10
-        except ValueError:
-            limit = 10
+        limit = request.args.get('limit', 10, type=int)
+        limit = min(limit, 100)  # Максимум 100 записей
         
-        conn = get_db_connection()
-        if not conn:
-            return jsonify({'error': 'Database connection failed'}), 500
+        conn = sqlite3.connect('veln_game.db')
+        cursor = conn.cursor()
         
-        try:
-            cursor = conn.cursor()
-            
-            if DATABASE_URL:  # PostgreSQL
-                cursor.execute('''
-                    SELECT user_id, username, first_name, last_name, points
-                    FROM users 
-                    WHERE points > 0 
-                    ORDER BY points DESC 
-                    LIMIT %s
-                ''', (limit,))
-            else:  # SQLite
-                cursor.execute('''
-                    SELECT user_id, username, first_name, last_name, points
-                    FROM users 
-                    WHERE points > 0 
-                    ORDER BY points DESC 
-                    LIMIT ?
-                ''', (limit,))
-            
-            results = cursor.fetchall()
-            
-            leaderboard = []
-            for i, row in enumerate(results, 1):
-                if DATABASE_URL:  # PostgreSQL
-                    leaderboard.append({
-                        'rank': i,
-                        'user_id': row[0],
-                        'username': row[1],
-                        'first_name': row[2],
-                        'last_name': row[3],
-                        'points': row[4]
-                    })
-                else:  # SQLite
-                    leaderboard.append({
-                        'rank': i,
-                        'user_id': row[0],
-                        'username': row[1],
-                        'first_name': row[2],
-                        'last_name': row[3],
-                        'points': row[4]
-                    })
-            
-            return jsonify({
-                'status': 'success',
-                'leaderboard': leaderboard,
-                'total': len(leaderboard)
+        cursor.execute('''
+            SELECT telegram_id, username, first_name, points
+            FROM users 
+            WHERE points > 0 
+            ORDER BY points DESC 
+            LIMIT ?
+        ''', (limit,))
+        
+        results = cursor.fetchall()
+        conn.close()
+        
+        leaderboard_data = []
+        for i, row in enumerate(results, 1):
+            leaderboard_data.append({
+                "rank": i,
+                "telegram_id": row[0],
+                "username": row[1],
+                "first_name": row[2],
+                "points": row[3]
             })
-            
-        except Exception as e:
-            logger.error(f"Database error in get_leaderboard: {e}")
-            return jsonify({'error': 'Database operation failed'}), 500
-        finally:
-            conn.close()
-            
+        
+        return jsonify({
+            "leaderboard": leaderboard_data,
+            "total_players": len(leaderboard_data)
+        })
+        
     except Exception as e:
-        logger.error(f"Error in get_leaderboard: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
+        logger.error(f"Leaderboard error: {e}")
+        return jsonify({"error": "Failed to get leaderboard"}), 500
 
-# Инициализация базы данных при старте приложения
-logger.info("Starting VELN Game API Server...")
-logger.info(f"BOT_TOKEN configured: {'Yes' if BOT_TOKEN else 'No'}")
-logger.info(f"DATABASE_URL configured: {'Yes' if DATABASE_URL else 'No (using SQLite)'}")
+# Обработка ошибок
+@app.errorhandler(404)
+def not_found(error):
+    return jsonify({"error": "Endpoint not found"}), 404
 
-# Инициализация базы данных
-if init_database():
-    logger.info("Database initialized successfully")
-else:
-    logger.error("Failed to initialize database")
+@app.errorhandler(500)
+def internal_error(error):
+    return jsonify({"error": "Internal server error"}), 500
 
-# Для локального запуска
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
-
-# Для Render.com - если нужно переименовать файл в app.py
-# просто скопируйте этот код в новый файл app.py
