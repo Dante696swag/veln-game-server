@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VELN Game - Time Point Coin</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #0a0a0a;
+            font-family: 'Inter', system-ui, sans-serif;
+            overflow: hidden;
+        }
+        
+        .veln-logo {
+            filter: drop-shadow(0 0 40px rgba(0,212,255,0.6)) drop-shadow(0 0 80px rgba(0,212,255,0.3));
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 0.9; }
+            50% { opacity: 1; }
+        }
+        
+        .animate-pulse {
+            animation: pulse 2s infinite;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // Telegram Web App initialization
+        const tg = window.Telegram?.WebApp;
+        if (tg) {
+            tg.ready();
+            tg.expand();
+        }
+
+        // Local storage hooks simulation
+        const useStoredState = (key, initialValue) => {
+            const [value, setValue] = useState(() => {
+                try {
+                    const item = localStorage.getItem(key);
+                    return item ? JSON.parse(item) : initialValue;
+                } catch (error) {
+                    return initialValue;
+                }
+            });
+
+            const setStoredValue = (newValue) => {
+                setValue(newValue);
+                localStorage.setItem(key, JSON.stringify(newValue));
+            };
+
+            return [value, setStoredValue];
+        };
+
+        const useUser = () => {
+            const user = tg?.initDataUnsafe?.user;
+            return {
+                id: user?.id || 'user_demo',
+                name: user?.first_name || 'Dante Moretti',
+                color: '#EC5E41',
+                avatar: user?.photo_url || null
+            };
+        };
+
+        const VelnGameInterface = () => {
+            const [logoPosition, setLogoPosition] = useStoredState('veln-logo-position', { x: 0, y: -140 });
+            const [points, setPoints] = useStoredState('veln-points', 0);
+            const [lastActiveTime, setLastActiveTime] = useStoredState('veln-last-active', Date.now());
+            const [isDragging, setIsDragging] = useState(null);
+            const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+            const [isAppVisible, setIsAppVisible] = useState(true);
+            const user = useUser();
+
+            // Инициализация при входе в приложение
+            useEffect(() => {
+                setLastActiveTime(Date.now());
+            }, []);
+
+            // Отслеживание видимости приложения
+            useEffect(() => {
+                const handleVisibilityChange = () => {
+                    if (document.hidden) {
+                        setIsAppVisible(false);
+                        setLastActiveTime(Date.now());
+                    } else {
+                        setIsAppVisible(true);
+                        setLastActiveTime(Date.now());
+                    }
+                };
+
+                const handleBeforeUnload = () => {
+                    setLastActiveTime(Date.now());
+                };
+
+                document.addEventListener('visibilitychange', handleVisibilityChange);
+                window.addEventListener('beforeunload', handleBeforeUnload);
+
+                return () => {
+                    document.removeEventListener('visibilitychange', handleVisibilityChange);
+                    window.removeEventListener('beforeunload', handleBeforeUnload);
+                };
+            }, []);
+
+            // Автоматический счетчик поинтов
+            useEffect(() => {
+                if (!isAppVisible) return;
+                
+                const interval = setInterval(() => {
+                    setPoints(prev => prev + 1);
+                    setLastActiveTime(Date.now());
+                }, 1000);
+                
+                return () => clearInterval(interval);
+            }, [isAppVisible]);
+
+            const handleMouseDown = (e, element) => {
+                setIsDragging(element);
+                setDragStart({
+                    x: e.clientX - logoPosition.x,
+                    y: e.clientY - logoPosition.y
+                });
+            };
+
+            const handleMouseMove = (e) => {
+                if (!isDragging) return;
+                
+                const newX = e.clientX - dragStart.x;
+                const newY = e.clientY - dragStart.y;
+                
+                if (isDragging === 'logo') {
+                    setLogoPosition({ x: newX, y: newY });
+                }
+            };
+
+            const handleMouseUp = () => {
+                setIsDragging(null);
+            };
+
+            return (
+                <div 
+                    className="flex items-center justify-center min-h-screen bg-gray-100 p-4"
+                    onMouseMove={handleMouseMove}
+                    onMouseUp={handleMouseUp}
+                    onMouseLeave={handleMouseUp}
+                >
+                    <div className="relative">
+                        <div 
+                            className="relative bg-black rounded-[55px] p-2 shadow-2xl"
+                            style={{ width: '393px', height: '852px' }}
+                        >
+                            <div 
+                                className="relative bg-black rounded-[45px] overflow-hidden"
+                                style={{ width: '377px', height: '836px' }}
+                            >
+                                {/* Dynamic Island */}
+                                <div 
+                                    className="absolute top-2 left-1/2 transform -translate-x-1/2 bg-black rounded-full z-50"
+                                    style={{ width: '126px', height: '37px' }}
+                                />
+                                
+                                {/* Status Bar */}
+                                <div className="absolute top-0 left-0 right-0 h-12 flex items-center justify-between px-6 pt-3 text-white text-sm font-semibold z-40">
+                                    <div>9:41</div>
+                                    <div className="flex items-center space-x-1">
+                                        <div className="w-4 h-2 border border-white rounded-sm">
+                                            <div className="w-3 h-1 bg-white rounded-sm m-0.5"></div>
+                                        </div>
+                                        <div className="w-6 h-3 border border-white rounded-sm">
+                                            <div className="w-4 h-1 bg-white rounded-sm m-0.5"></div>
+                                        </div>
+                                        <div className="w-1 h-2 bg-white rounded-full"></div>
+                                    </div>
+                                </div>
+
+                                {/* Telegram Header */}
+                                <div className="absolute top-12 left-0 right-0 h-12 bg-gray-900 flex items-center justify-between px-4 z-40 border-b border-gray-700">
+                                    <div className="flex items-center space-x-3">
+                                        <svg className="w-6 h-6 text-blue-400" fill="currentColor" viewBox="0 0 24 24">
+                                            <path d="M9.78 18.65l.28-4.23 7.68-6.92c.34-.31-.07-.46-.52-.19L7.74 13.3 3.64 12c-.88-.25-.89-.86.2-1.3l15.97-6.16c.73-.33 1.43.18 1.15 1.3l-2.72 12.81c-.19.91-.74 1.13-1.5.71L12.6 16.3l-1.99 1.93c-.23.23-.42.42-.83.42z"/>
+                                        </svg>
+                                        <div>
+                                            <div className="text-white text-sm font-medium">VELN Bot</div>
+                                            <div className="text-gray-400 text-xs">Online</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Нижняя панель с иконками */}
+                                <div className="absolute bottom-6 left-0 right-0 flex justify-center items-center px-8 z-50">
+                                    <div className="flex items-center space-x-6">
+                                        
+                                        {/* Иконка Рюкзак */}
+                                        <div className="w-14 h-14 rounded-full flex items-center justify-center bg-gray-800 border-2 border-gray-600 shadow-xl hover:bg-gray-700 transition-colors cursor-pointer">
+                                            <svg className="w-8 h-8 text-gray-300" fill="currentColor" viewBox="0 0 24 24">
+                                                <path d="M14 2v3h2v2h3c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H5c-1.1 0-2-.9-2-2V9c0-1.1.9-2 2-2h3V5h2V2h4zM9 7V5h6v2H9zm10 4H5v10h14V11zm-2 2v2h-2v-2h2zm-8 0v2H7v-2h2z"/>
+                                            </svg>
+                                        </div>
+
+                                        {/* Иконка Джойстик */}
+                                        <div className="w-14 h-14 rounded-full flex items-center justify-center bg-gray-800 border-2 border-gray-600 shadow-xl hover:bg-gray-700 transition-colors cursor-pointer">
+                                            <svg className="w-8 h-8 text-gray-300" fill="currentColor" viewBox="0 0 24 24">
+                                                <path d="M17.5 7c1.93 0 3.5 1.57 3.5 3.5v6c0 1.93-1.57 3.5-3.5 3.5h-11C4.57 20 3 18.43 3 16.5v-6C3 8.57 4.57 7 6.5 7h11zM17.5 9h-11C5.67 9 5 9.67 5 10.5v6c0 .83.67 1.5 1.5 1.5h11c.83 0 1.5-.67 1.5-1.5v-6c0-.83-.67-1.5-1.5-1.5zm-10 2.5c.28 0 .5.22.5.5s-.22.5-.5.5-.5-.22-.5-.5.22-.5.5-.5zm0 2c.28 0 .5.22.5.5s-.22.5-.5.5-.5-.22-.5-.5.22-.5.5-.5zm1-1c.28 0 .5.22.5.5s-.22.5-.5.5-.5-.22-.5-.5.22-.5.5-.5zm7-1c.28 0 .5.22.5.5s-.22.5-.5.5-.5-.22-.5-.5.22-.5.5-.5zm1 1c.28 0 .5.22.5.5s-.22.5-.5.5-.5-.22-.5-.5.22-.5.5-.5zm-1 1c.28 0 .5.22.5.5s-.22.5-.5.5-.5-.22-.5-.5.22-.5.5-.5zm-1-1c.28 0 .5.22.5.5s-.22.5-.5.5-.5-.22-.5-.5.22-.5.5-.5z"/>
+                                            </svg>
+                                        </div>
+
+                                        {/* Иконка Тележка */}
+                                        <div className="w-14 h-14 rounded-full flex items-center justify-center bg-gray-800 border-2 border-gray-600 shadow-xl hover:bg-gray-700 transition-colors cursor-pointer">
+                                            <svg className="w-8 h-8 text-gray-300" fill="currentColor" viewBox="0 0 24 24">
+                                                <path d="M7 18c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zM1 2v2h2l3.6 7.59-1.35 2.45c-.16.28-.25.61-.25.96 0 1.1.9 2 2 2h12v-2H7.42c-.14 0-.25-.11-.25-.25l.03-.12L8.1 13h7.45c.75 0 1.42-.41 1.75-1.03L21.7 4H5.21l-.94-2H1zm16 16c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
+                                            </svg>
+                                        </div>
+
+                                        {/* Иконка профиля */}
+                                        <div 
+                                            className="w-14 h-14 rounded-full flex items-center justify-center overflow-hidden shadow-2xl border-2 border-white cursor-pointer hover:scale-110 transition-transform"
+                                            style={{ 
+                                                backgroundColor: user.color,
+                                                boxShadow: '0 0 20px rgba(255,255,255,0.5), 0 0 40px rgba(255,255,255,0.3)'
+                                            }}
+                                        >
+                                            {user.avatar ? (
+                                                <img 
+                                                    src={user.avatar} 
+                                                    alt={user.name} 
+                                                    className="w-full h-full object-cover rounded-full"
+                                                />
+                                            ) : (
+                                                <div className="text-white text-xl font-bold">
+                                                    {user.name.charAt(0).toUpperCase()}
+                                                </div>
+                                            )}
+                                        </div>
+                                        
+                                    </div>
+                                </div>
+
+                                {/* Game Content */}
+                                <div 
+                                    className="absolute top-24 left-0 right-0 bottom-0 overflow-hidden"
+                                    style={{
+                                        background: `linear-gradient(180deg, #0a0a0a 0%, #1a1a1a 30%, #0d0d0d 60%, #000000 100%)`
+                                    }}
+                                >
+                                    <div className="flex flex-col items-center justify-center h-full relative">
+                                        {/* VELN Logo */}
+                                        <div 
+                                            className="absolute cursor-move select-none"
+                                            style={{ 
+                                                transform: `translate(${logoPosition.x}px, ${logoPosition.y}px)`,
+                                                transition: isDragging === 'logo' ? 'none' : 'transform 0.3s ease'
+                                            }}
+                                            onMouseDown={(e) => handleMouseDown(e, 'logo')}
+                                        >
+                                            <div className="relative mb-4">
+                                                <div 
+                                                    className="flex items-center justify-center shadow-2xl animate-pulse"
+                                                    style={{ width: '300px', height: '300px' }}
+                                                >
+                                                    <div 
+                                                        className="w-full h-full rounded-full veln-logo"
+                                                        style={{
+                                                            background: 'linear-gradient(135deg, #00d4ff 0%, #ffffff 50%, #00d4ff 100%)',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            fontSize: '72px',
+                                                            fontWeight: '900',
+                                                            color: '#000',
+                                                            textShadow: '0 0 20px rgba(0,212,255,0.8)'
+                                                        }}
+                                                    >
+                                                        VELN
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Time-Point-VELN COIN */}
+                                        <div 
+                                            className="absolute"
+                                            style={{ 
+                                                transform: `translate(${logoPosition.x}px, ${logoPosition.y + 200}px)`,
+                                            }}
+                                        >
+                                            <div className="text-center">
+                                                <div 
+                                                    className="inline-block px-6 py-3 border-4 rounded-full"
+                                                    style={{
+                                                        background: 'transparent',
+                                                        backdropFilter: 'blur(10px)',
+                                                        boxShadow: '0 0 30px rgba(0,212,255,0.5)',
+                                                        borderColor: '#00d4ff'
+                                                    }}
+                                                >
+                                                    <div 
+                                                        className="text-xl font-black tracking-wider uppercase"
+                                                        style={{
+                                                            background: 'linear-gradient(135deg, #00d4ff 0%, #ffffff 25%, #e0e0e0 50%, #ffffff 75%, #00d4ff 100%)',
+                                                            WebkitBackgroundClip: 'text',
+                                                            WebkitTextFillColor: 'transparent',
+                                                            backgroundClip: 'text',
+                                                            fontWeight: '900',
+                                                            WebkitTextStroke: '2px #000000',
+                                                            textShadow: '0 0 30px rgba(0,212,255,0.9)',
+                                                            letterSpacing: '0.15em'
+                                                        }}
+                                                    >
+                                                        Time-Point-VELN COIN
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* POINT */}
+                                        <div 
+                                            className="absolute"
+                                            style={{ 
+                                                transform: `translate(${logoPosition.x}px, ${logoPosition.y + 300}px)`,
+                                            }}
+                                        >
+                                            <div className="text-center">
+                                                <div 
+                                                    className="text-3xl font-black mb-6"
+                                                    style={{
+                                                        background: 'linear-gradient(135deg, #00d4ff 0%, #ffffff 30%, #00bfff 60%, #ffffff 80%, #00d4ff 100%)',
+                                                        WebkitBackgroundClip: 'text',
+                                                        WebkitTextFillColor: 'transparent',
+                                                        backgroundClip: 'text',
+                                                        fontWeight: '900',
+                                                        WebkitTextStroke: '2px black',
+                                                        textShadow: '0 0 25px rgba(0,212,255,0.8)',
+                                                        letterSpacing: '0.2em'
+                                                    }}
+                                                >
+                                                    POINT
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Счетчик поинтов */}
+                                        <div 
+                                            className="absolute"
+                                            style={{ 
+                                                transform: `translate(${logoPosition.x}px, ${logoPosition.y + 360}px)`,
+                                            }}
+                                        >
+                                            <div className="text-center">
+                                                <div 
+                                                    className="text-6xl font-black mb-4"
+                                                    style={{
+                                                        background: 'linear-gradient(135deg, #00d4ff 0%, #ffffff 25%, #e0e0e0 50%, #ffffff 75%, #00d4ff 100%)',
+                                                        WebkitBackgroundClip: 'text',
+                                                        WebkitTextFillColor: 'transparent',
+                                                        backgroundClip: 'text',
+                                                        fontWeight: '900',
+                                                        WebkitTextStroke: '4px black',
+                                                        textShadow: '0 0 20px rgba(0,212,255,0.5)',
+                                                        letterSpacing: '0.1em'
+                                                    }}
+                                                >
+                                                    {points.toLocaleString()}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 w-32 h-1 bg-white rounded-full opacity-60"></div>
+                    </div>
+                </div>
+            );
+        };
+
+        ReactDOM.render(<VelnGameInterface />, document.getElementById('root'));
+    </script>
+</body>
+</html>
